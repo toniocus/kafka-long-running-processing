@@ -78,15 +78,21 @@ public class Consumer {
     @KafkaListener(id = CONSUMER_ID, topics = "${ta.conciliator.batch.kafka.queue}", groupId = "${ta.conciliator.batch.kafka.groupId}")
     public void consume(final String message, final Acknowledgment ack) throws IOException, InterruptedException {
 
-        ack.acknowledge();
-
         try {
+
             this.logger.info(String.format("#%d -> Consuming message -> %s", ++this.counter, message));
 
             this.semaphore.acquire();
 
-            this.logger.info("Sending to thread-pool");
-            this.executorPool.execute(() -> run(message, this.counter));
+            try {
+                this.logger.info("Sending to thread-pool");
+                this.executorPool.execute(() -> run(message, this.counter));
+            }
+            catch (RuntimeException ex) {
+                // if execute fails we need to release semaphore.
+                this.semaphore.release();
+                throw ex;
+            }
 
             if (this.semaphore.availablePermits() <= 0) {
                 this.logger.info("Pausing Kafka poll");
