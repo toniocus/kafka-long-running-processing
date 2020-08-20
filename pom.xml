@@ -9,10 +9,10 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.example</groupId>
-	<artifactId>kafka</artifactId>
+	<artifactId>kafka-long-running-processing</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>kafka</name>
-	<description>Demo project for Spring Boot</description>
+	<name>kafka-long-running-processing</name>
+	<description>Understand how to deal with long time processing of messages using pause/resume</description>
 
 	<properties>
 		<java.version>1.8</java.version>
