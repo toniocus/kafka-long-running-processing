@@ -3,6 +3,7 @@ package com.example.demo;
 import java.io.IOException;
 import java.util.Random;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 import javax.annotation.PostConstruct;
 
@@ -33,6 +34,10 @@ public class Consumer {
     @Value("${ta.conciliador.request.thread.pool.size:1}")
     private int poolSize;
 
+    @Autowired
+    private Producer producer;
+
+    int resendCounter;
     int counter;
     private Semaphore semaphore;
     private ThreadPoolTaskExecutor executorPool;
@@ -78,28 +83,38 @@ public class Consumer {
     @KafkaListener(id = CONSUMER_ID, topics = "${ta.conciliator.batch.kafka.queue}", groupId = "${ta.conciliator.batch.kafka.groupId}")
     public void consume(final String message, final Acknowledgment ack) throws IOException, InterruptedException {
 
+
+
         try {
 
             this.logger.info(String.format("#%d -> Consuming message -> %s", ++this.counter, message));
 
-            this.semaphore.acquire();
+            if (2 >= this.resendCounter++ || !this.semaphore.tryAcquire(10L, TimeUnit.SECONDS)) {
 
-            try {
-                this.logger.info("Sending to thread-pool");
-                this.executorPool.execute(() -> run(message, this.counter));
-            }
-            catch (RuntimeException ex) {
-                // if execute fails we need to release semaphore.
-                this.semaphore.release();
-                throw ex;
-            }
+                // Need to limit the retry somehow
+                this.producer.sendMessage(message);
 
-            if (this.semaphore.availablePermits() <= 0) {
-                this.logger.info("Pausing Kafka poll");
-                this.registry.getListenerContainer(CONSUMER_ID).pause();
+                this.logger.info("Not able to get a semaphore, resending message to kafka");
             }
+            else {
 
-            this.logger.info("Message Consumer Ended sending request");
+                try {
+                    this.logger.info("Sending to thread-pool");
+                    this.executorPool.execute(() -> run(message, this.counter));
+                }
+                catch (RuntimeException ex) {
+                    // if execute fails we need to release semaphore.
+                    this.semaphore.release();
+                    throw ex;
+                }
+
+                if (this.semaphore.availablePermits() <= 0) {
+                    this.logger.info("Pausing Kafka poll");
+                    this.registry.getListenerContainer(CONSUMER_ID).pause();
+                }
+
+                this.logger.info("Message Consumer Ended sending request");
+            }
         }
         finally {
             ack.acknowledge();
@@ -110,26 +125,30 @@ public class Consumer {
 
     private void run(final String message, final int counter) {
 
-        this.logger.info(String.format("Processing thread %s for message #(%d) %s"
-                , Thread.currentThread().getName()
-                , counter
-                , message
-                ));
-
-        long millis = 8000L + this.random.nextInt(5000);
-
         try {
-            this.logger.info("Sleeping {} millis...", millis);
-            Thread.sleep(millis);
-        }
-        catch (InterruptedException ex) {
-            ex.printStackTrace();
-        }
+            this.logger.info(String.format("Processing thread %s for message #(%d) %s"
+                    , Thread.currentThread().getName()
+                    , counter
+                    , message
+                    ));
 
-        this.logger.info(String.format("###-001 -> Finished with message -> %s", message));
+            long millis = 8000L + this.random.nextInt(5000);
 
-        this.semaphore.release();
-        this.registry.getListenerContainer(CONSUMER_ID).resume();
+            try {
+                this.logger.info("Sleeping {} millis...", millis);
+                Thread.sleep(millis);
+            }
+            catch (InterruptedException ex) {
+                ex.printStackTrace();
+            }
+
+            this.logger.info(String.format("###-001 -> Finished with message -> %s", message));
+        }
+        finally {
+
+            this.semaphore.release();
+            this.registry.getListenerContainer(CONSUMER_ID).resume();
+        }
 
     }
 
