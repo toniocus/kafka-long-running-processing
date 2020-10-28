@@ -24,7 +24,8 @@ public class Producer {
 
     public void sendMessage(final String message) {
         logger.info(String.format("#%d -> Producing message -> %s", ++this.counter, message));
-        this.kafkaTemplate.send(TOPIC, message);
+
+        KafkaSyncProducerHelper.sendMessage(this.kafkaTemplate, TOPIC, null, message, ex -> System.out.println(ex));
     }
 
 }
