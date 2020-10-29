@@ -1,8 +1,12 @@
 package com.example.demo;
 
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import org.apache.commons.lang3.Validate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.util.concurrent.ListenableFuture;
@@ -13,6 +17,9 @@ import org.springframework.util.concurrent.ListenableFuture;
  * @author tonioc
  */
 public final class KafkaSyncProducerHelper {
+
+    private static final String ERROR_PROCESSING_ERROR_HANDLER = "Error ocurred while processing errorHandler callback";
+    private static final Logger log = LoggerFactory.getLogger(KafkaSyncProducerHelper.class);
 
     /**
      * Constructor.
@@ -48,15 +55,45 @@ public final class KafkaSyncProducerHelper {
 
         try {
             kafkaTemplate.flush();
-            future.get();
+
+            // In standard Kafka configurations 30 seconds will be enough
+            // but just in case, once flush is called this should return immediately.
+            future.get(180, TimeUnit.SECONDS);
+
             return true;
         }
         catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            errorHandler.accept(ex);
+
+            try {
+                errorHandler.accept(ex);
+            }
+            catch(Exception ehEx) {
+                log.error(ERROR_PROCESSING_ERROR_HANDLER, ehEx);
+            }
+        }
+        catch (ExecutionException ex) {
+
+            log.error(ERROR_PROCESSING_ERROR_HANDLER, ex);
+
+            try {
+                errorHandler.accept(ex.getCause());
+            }
+            catch(Exception ehEx) {
+                log.error(ERROR_PROCESSING_ERROR_HANDLER, ehEx);
+            }
+
         }
         catch (Exception ex) {
-            errorHandler.accept(ex);
+
+            log.error(ERROR_PROCESSING_ERROR_HANDLER, ex);
+
+            try {
+                errorHandler.accept(ex);
+            }
+            catch(Exception ehEx) {
+                log.error(ERROR_PROCESSING_ERROR_HANDLER, ehEx);
+            }
         }
 
         return false;
